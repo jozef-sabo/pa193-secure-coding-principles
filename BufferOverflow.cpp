@@ -6,6 +6,7 @@
 #include "memory.h"
 #include <iostream>
 #include <iomanip>
+#include <limits.h>
 using namespace std;
 // Note: GCC and MSVC uses different memory alignment
 // Try "12345678DevilEvecosia" as a password for gcc build
@@ -31,18 +32,30 @@ void demoBufferOverflowData() {
 	printf("\n");
 
 	// Get user name
-	memset(userName, 1, USER_INPUT_MAX_LENGTH);
-	memset(passwd, 2, USER_INPUT_MAX_LENGTH);
+	memset(userName, 0, USER_INPUT_MAX_LENGTH);
+	memset(passwd, 0, USER_INPUT_MAX_LENGTH);
 	printf("login as: ");
 	fflush(stdout);
 	//gets(userName); // use scanf("%s", userName); if gets fails with identifier not found
-	scanf("%7s", userName);
+	if (fgets(userName, USER_INPUT_MAX_LENGTH, stdin)) {
+		// Remove trailing newline if present
+		size_t len = strlen(userName);
+		if (len > 0 && userName[len - 1] == '\n') {
+			userName[len - 1] = '\0';
+		}
+	}
 
 	// Get password
 	printf("%s@vulnerable.machine.com: ", userName);
 	fflush(stdout);
 	//gets(passwd);  
-	scanf("%7s", passwd); // use scanf("%s", passwd); if gets fails with identifier not found
+	if (fgets(passwd, USER_INPUT_MAX_LENGTH, stdin)) {
+		// Remove trailing newline if present
+		size_t len = strlen(passwd);
+		if (len > 0 && passwd[len - 1] == '\n') {
+			passwd[len - 1] = '\0';
+		}
+	}
 
 	// Check user rights (set to NORMAL_USER and not changed in code)
 	if (userRights == NORMAL_USER) {
@@ -82,11 +95,14 @@ void demoAdjacentMemoryOverflow(char* userName, char* password) {
 	printf("\n");
 
 	memset(buf, 0, sizeof(buf));
-	memset(message, 1, sizeof(message));
-	strncpy(buf, userName, sizeof(buf) - 1);              // We will copy only characters which fits into buf
+	memset(message, 0, sizeof(message));
+	// Use strncpy and ensure null termination
+	strncpy(buf, userName, sizeof(buf) - 1);
+	buf[sizeof(buf) - 1] = '\0';  // Ensure null termination
 
-													  // Now print username to standard output - nothing sensitive, right?
-	sprintf(message, "Checking '%8s' password\n", buf);
+	// Now print username to standard output - nothing sensitive, right?
+	// Use snprintf instead of sprintf to prevent buffer overflow
+	snprintf(message, sizeof(message), "Checking '%.8s' password\n", buf);
 	printf("%s", message);
 	if (strcmp(password, realPassword) == 0) {
 		printf("Correct password.\n");
@@ -107,14 +123,27 @@ typedef struct _some_structure {
 void demoDataTypeOverflow(int totalItemsCount, some_structure* pItem, int itemPosition) {
 	// See http://blogs.msdn.com/oldnewthing/archive/2004/01/29/64389.aspx
 	some_structure* data_copy = NULL;
-	int bytesToAllocation = totalItemsCount * sizeof(some_structure);
-	printf("Bytes to allocation: %d\n", bytesToAllocation);
+
+	// Check for integer overflow before multiplication
+	if (totalItemsCount < 0 || totalItemsCount > INT_MAX / sizeof(some_structure)) {
+		printf("Error: Invalid totalItemsCount (potential integer overflow)\n");
+		return;
+	}
+
+	size_t bytesToAllocation = (size_t)totalItemsCount * sizeof(some_structure);
+	printf("Bytes to allocation: %zu\n", bytesToAllocation);
 	data_copy = (some_structure*)malloc(bytesToAllocation);
+	if (data_copy == NULL) {
+		printf("Error: Memory allocation failed\n");
+		return;
+	}
+
 	if (itemPosition >= 0 && itemPosition < totalItemsCount) {
 		memcpy(&(data_copy[itemPosition]), pItem, sizeof(some_structure));
 	}
 	else {
 		printf("Out of bound assignment");
+		free(data_copy);
 		return;
 	}
 	free(data_copy);
